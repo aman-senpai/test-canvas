@@ -1,3 +1,4 @@
+// CanvasNode.tsx
 import React from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { CanvasNode as CanvasNodeType } from '@/types/canvas';
@@ -24,9 +25,10 @@ const LIGHT_EDGE_COLORS: { [key: string]: string } = {
 interface CanvasNodeProps {
   node: CanvasNodeType;
   onNodeClick: (node: CanvasNodeType) => void;
+  onReloadNode?: (nodeId: string) => void; // Added onReloadNode prop
 }
 
-export const CanvasNode = ({ node, onNodeClick }: CanvasNodeProps) => {
+export const CanvasNode = ({ node, onNodeClick, onReloadNode }: CanvasNodeProps) => { // Destructure onReloadNode
   const { theme } = useTheme();
   const currentEdgeColors = theme === 'dark' ? DARK_EDGE_COLORS : LIGHT_EDGE_COLORS;
   const nodeColor = node.color
@@ -35,7 +37,8 @@ export const CanvasNode = ({ node, onNodeClick }: CanvasNodeProps) => {
 
   return (
     <div
-      className="absolute bg-[var(--node-bg)] border rounded-lg shadow-xl text-[var(--foreground)] p-0"
+      key={node.id}
+      className="absolute bg-[var(--node-bg)] border rounded-lg shadow-xl text-[var(--foreground)] overflow-hidden" // Keep overflow-hidden on the main node container
       style={{
         left: node.position.x,
         top: node.position.y,
@@ -44,12 +47,14 @@ export const CanvasNode = ({ node, onNodeClick }: CanvasNodeProps) => {
         transform: 'translate(-50%, -50%)',
         borderColor: nodeColor,
         borderWidth: '3px',
-        boxSizing: 'border-box',
-        padding: 0,
+        boxSizing: 'border-box', // Ensure padding is included in width/height
       }}
     >
-      <div className="w-full h-full p-2 box-border">
-        <NodeContent node={node} onNodeClick={onNodeClick} />
+      <div 
+        className="w-full h-full p-2 box-border group" // Consistent padding applied here
+        // Removed onWheel handler from here, it's now handled in NodeContent.tsx
+      >
+        <NodeContent node={node} onNodeClick={onNodeClick} onReloadNode={onReloadNode} />
       </div>
     </div>
   );

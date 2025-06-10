@@ -1,13 +1,15 @@
-import React from 'react';
+// NodeContent.tsx
+import React, { useRef, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { CanvasNode } from '@/types/canvas';
-import WebView from '../WebView';
+import WebView, { WebViewHandle } from '../WebView';
 
 interface NodeContentProps {
   node: CanvasNode;
   onNodeClick: (node: CanvasNode) => void;
+  onReloadNode?: (nodeId: string) => void;
 }
 
 const components = {
@@ -35,8 +37,32 @@ const components = {
 };
 
 const MarkdownContent = ({ content }: { content: string }) => {
+  const markdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mdElement = markdownRef.current;
+    if (mdElement) {
+      const handleWheel = (e: WheelEvent) => {
+        // Only stop propagation if the content is actually scrollable
+        if (mdElement.scrollHeight > mdElement.clientHeight) {
+          e.stopPropagation();
+        }
+        // If not scrollable, let it bubble up to the canvas for zooming
+      };
+
+      mdElement.addEventListener('wheel', handleWheel, { passive: false });
+      return () => {
+        mdElement.removeEventListener('wheel', handleWheel);
+      };
+    }
+  }, [content]); // Re-attach if content changes
+
   return (
-    <div className="prose prose-sm w-full h-full px-2 py-1 box-border">
+    <div 
+      ref={markdownRef}
+      className="prose prose-sm w-full h-full px-2 py-1 box-border overflow-y-auto" // Added overflow-y-auto here
+      style={{ maxHeight: '100%' }} // Crucial to enable scrolling
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm as any, remarkBreaks as any]}
         components={components}
@@ -48,59 +74,74 @@ const MarkdownContent = ({ content }: { content: string }) => {
 };
 
 export const NodeContent = ({ node, onNodeClick }: NodeContentProps) => {
+  const ribbonHeight = 24; // Height of the ribbon in pixels
+  const webViewRef = useRef<WebViewHandle>(null);
+  const [webTitle, setWebTitle] = useState('');
+
   switch (node.type) {
     case 'text':
       return (
-        <div 
-          className="w-full h-full overflow-hidden node-content cursor-pointer" 
-          onClick={() => onNodeClick(node)}
-        >
-          <div className="w-full h-full overflow-auto">
-            <MarkdownContent content={node.content} />
-          </div>
+        // Removed overflow-hidden from this div, it's now on MarkdownContent
+        <div className="w-full h-full node-content cursor-pointer" onClick={() => onNodeClick(node)}>
+          <MarkdownContent content={node.content} />
         </div>
       );
     case 'file':
+      // Assuming file content is also markdown and should be scrollable
       return (
-        <div className="w-full h-full overflow-auto">
-          <MarkdownContent content={`# ${node.label || node.content}`} />
-        </div>
-      );
-    case 'url':
-      return (
-        <div className="flex items-center gap-2 text-[var(--foreground)] font-medium">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          {node.content}
+        <div className="w-full h-full node-content cursor-pointer" onClick={() => onNodeClick(node)}>
+          {/* For file type, display file name as h3 and then its content as markdown */}
+          <MarkdownContent content={`### ${node.content.split('/').pop() || node.content}\n\n`} />
+          {/* You might want to fetch and display the actual file content here if it's markdown */}
         </div>
       );
     case 'link':
       return (
-        <div className="w-full h-full">
-          <WebView url={node.content} width={node.width} height={node.height} onNodeClick={() => onNodeClick(node)} />
+        <div className="relative w-full h-full cursor-pointer node-content" onClick={() => onNodeClick(node)}>
+          <div className="absolute top-0 left-0 w-full bg-[var(--node-border)] text-white text-xs px-2 py-1 rounded-t-lg flex justify-between items-center z-10">
+            <span className="truncate max-w-[80%]" title={webTitle || node.content}>{webTitle || node.content}</span>
+            <button
+              className="ml-2 p-0.5 rounded hover:bg-white hover:bg-opacity-20"
+              onClick={e => {
+                e.stopPropagation();
+                if (webViewRef.current) {
+                  webViewRef.current.reload();
+                }
+              }}
+              title="Reload page"
+            >
+              {/* Standard reload icon */}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 0020 13a8 8 0 11-8-8" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-grow">
+            <WebView
+              ref={webViewRef}
+              url={node.content}
+              width={node.width}
+              height={node.height - ribbonHeight}
+              onTitleChange={setWebTitle}
+            />
+          </div>
         </div>
       );
     case 'image':
       return (
-        <div className="relative w-full h-full">
+        <div className="relative w-full h-full node-content cursor-pointer" onClick={() => onNodeClick(node)}>
           <img
             src={node.content}
-            alt="Canvas image"
-            className="object-contain w-full h-full"
+            alt="Node Image"
+            className="max-w-full max-h-full object-contain"
           />
         </div>
       );
-    case 'group':
+    default:
       return (
-        <div className="flex items-center gap-2 text-obsidian-text font-medium">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <span className="text-sm">{node.label || 'Group'}</span>
+        <div className="w-full h-full flex items-center justify-center node-content cursor-pointer" onClick={() => onNodeClick(node)}>
+          <p className="text-[var(--foreground)] text-sm opacity-70">Unsupported Node Type</p>
         </div>
       );
-    default:
-      return null;
   }
 };

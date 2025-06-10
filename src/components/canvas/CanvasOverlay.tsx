@@ -33,4 +33,4 @@ export function CanvasOverlay({ isLoading, isDraggingFile, hasNodes }: CanvasOve
       )}
     </div>
   );
-} 
+}

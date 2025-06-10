@@ -36,180 +36,118 @@ export const EdgeRenderer: React.FC<EdgeRendererProps> = ({ edges = [], nodes = 
     const dy = toPoint.y - fromPoint.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Calculate the control point distance based on the distance between nodes
-    const controlDistance = Math.min(distance * 0.5, 200);
+    // Calculate the control point distance based on the distance
+    const controlPointOffset = Math.max(50, Math.min(distance / 2, 100)); // Adjust this value as needed
 
-    // Default control points (for right-to-left connections)
-    let cp1x = fromPoint.x + controlDistance;
-    let cp1y = fromPoint.y;
-    let cp2x = toPoint.x - controlDistance;
-    let cp2y = toPoint.y;
+    let cp1 = { x: fromPoint.x, y: fromPoint.y };
+    let cp2 = { x: toPoint.x, y: toPoint.y };
 
-    // Adjust control points based on connection sides
-    if (fromSide === 'right' && toSide === 'left') {
-      // Default case, already set above
-    } else if (fromSide === 'left' && toSide === 'right') {
-      cp1x = fromPoint.x - controlDistance;
-      cp2x = toPoint.x + controlDistance;
-    } else if (fromSide === 'top' && toSide === 'bottom') {
-      cp1x = fromPoint.x;
-      cp1y = fromPoint.y - controlDistance;
-      cp2x = toPoint.x;
-      cp2y = toPoint.y + controlDistance;
-    } else if (fromSide === 'bottom' && toSide === 'top') {
-      cp1x = fromPoint.x;
-      cp1y = fromPoint.y + controlDistance;
-      cp2x = toPoint.x;
-      cp2y = toPoint.y - controlDistance;
-    } else {
-      // For other combinations, create a more natural curve
-      const angle = Math.atan2(dy, dx);
-      const perpendicular = angle + Math.PI / 2;
-      const offset = controlDistance * 0.5;
+    // Set control points based on connection sides for smoother curves
+    if (fromSide === 'right') cp1.x += controlPointOffset;
+    if (fromSide === 'left') cp1.x -= controlPointOffset;
+    if (fromSide === 'bottom') cp1.y += controlPointOffset;
+    if (fromSide === 'top') cp1.y -= controlPointOffset;
 
-      cp1x = fromPoint.x + controlDistance * Math.cos(angle) + offset * Math.cos(perpendicular);
-      cp1y = fromPoint.y + controlDistance * Math.sin(angle) + offset * Math.sin(perpendicular);
-      cp2x = toPoint.x - controlDistance * Math.cos(angle) + offset * Math.cos(perpendicular);
-      cp2y = toPoint.y - controlDistance * Math.sin(angle) + offset * Math.sin(perpendicular);
+    if (toSide === 'right') cp2.x += controlPointOffset;
+    if (toSide === 'left') cp2.x -= controlPointOffset;
+    if (toSide === 'bottom') cp2.y += controlPointOffset;
+    if (toSide === 'top') cp2.y -= controlPointOffset;
+
+    // Fallback for straight lines or when sides don't dictate clear direction
+    if (fromSide === 'right' && toSide === 'left' && dx < 0) {
+      cp1.x = fromPoint.x + distance / 2;
+      cp2.x = toPoint.x - distance / 2;
+    }
+    if (fromSide === 'left' && toSide === 'right' && dx > 0) {
+      cp1.x = fromPoint.x - distance / 2;
+      cp2.x = toPoint.x + distance / 2;
+    }
+    if (fromSide === 'bottom' && toSide === 'top' && dy < 0) {
+      cp1.y = fromPoint.y + distance / 2;
+      cp2.y = toPoint.y - distance / 2;
+    }
+    if (fromSide === 'top' && toSide === 'bottom' && dy > 0) {
+      cp1.y = fromPoint.y - distance / 2;
+      cp2.y = toPoint.y + distance / 2;
     }
 
-    return { cp1x, cp1y, cp2x, cp2y };
+    return { cp1, cp2 };
   };
-
-  // Helper to calculate a point along a cubic Bezier curve
-  const getPointAlongCurve = (t: number, p0: { x: number; y: number }, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
-    const cx = 3 * (p1.x - p0.x);
-    const bx = 3 * (p2.x - p1.x) - cx;
-    const ax = p3.x - p0.x - cx - bx;
-    
-    const cy = 3 * (p1.y - p0.y);
-    const by = 3 * (p2.y - p1.y) - cy;
-    const ay = p3.y - p0.y - cy - by;
-    
-    const x = ax * Math.pow(t, 3) + bx * Math.pow(t, 2) + cx * t + p0.x;
-    const y = ay * Math.pow(t, 3) + by * Math.pow(t, 2) + cy * t + p0.y;
-    
-    return { x, y };
-  };
-
-  // Helper to calculate the angle of the curve at a point
-  const getCurveAngle = (t: number, p0: { x: number; y: number }, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }) => {
-    const cx = 3 * (p1.x - p0.x);
-    const bx = 3 * (p2.x - p1.x) - cx;
-    const ax = p3.x - p0.x - cx - bx;
-    
-    const cy = 3 * (p1.y - p0.y);
-    const by = 3 * (p2.y - p1.y) - cy;
-    const ay = p3.y - p0.y - cy - by;
-    
-    const dx = 3 * ax * Math.pow(t, 2) + 2 * bx * t + cx;
-    const dy = 3 * ay * Math.pow(t, 2) + 2 * by * t + cy;
-    
-    return Math.atan2(dy, dx);
-  };
-
-  // Arrow color
-  const arrowColor = theme === 'dark' ? '#FFD54F' : '#FBC02D';
-  const lineColor = theme === 'dark' ? '#888' : '#333';
 
   return (
-    <svg 
-      className="absolute top-0 left-0 w-full h-full pointer-events-none" 
-      style={{ 
-        zIndex: 1,
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        overflow: 'visible',
-        transform: 'translateZ(0)'
-      }}
-    >
-      <defs>
-        <marker
-          id="arrowhead"
-          markerWidth="10"
-          markerHeight="7"
-          refX="9"
-          refY="3.5"
-          orient="auto"
-          markerUnits="strokeWidth"
-        >
-          <polygon points="0 0, 10 3.5, 0 7" fill={arrowColor} />
-        </marker>
-      </defs>
-      {edges.map((edge) => {
-        const fromNode = nodes.find((n) => n.id === edge.from);
-        const toNode = nodes.find((n) => n.id === edge.to);
-        if (!fromNode || !toNode) return null;
+    <>
+      {edges.map(edge => {
+        const fromNode = nodes.find(n => n.id === edge.from);
+        const toNode = nodes.find(n => n.id === edge.to);
+
+        if (!fromNode || !toNode) {
+          return null;
+        }
 
         const fromPoint = getConnectionPoint(fromNode, edge.fromSide);
         const toPoint = getConnectionPoint(toNode, edge.toSide);
+
+        const { cp1, cp2 } = getControlPoints(fromPoint, toPoint, edge.fromSide, edge.toSide);
+
         const isSelected = selectedEdgeId === edge.id;
 
-        // Get control points for the Bezier curve
-        const { cp1x, cp1y, cp2x, cp2y } = getControlPoints(fromPoint, toPoint, edge.fromSide, edge.toSide);
+        const DARK_EDGE_COLORS: { [key: string]: string } = {
+          '1': '#E57373', '2': '#81C784', '3': '#64B5F6', '4': '#FFD54F', '5': '#BA68C8', '6': '#4DD0E1',
+        };
+        const LIGHT_EDGE_COLORS: { [key: string]: string } = {
+          '1': '#D32F2F', '2': '#388E3C', '3': '#1976D2', '4': '#FBC02D', '5': '#7B1FA2', '6': '#0097A7',
+        };
+        const currentEdgeColors = theme === 'dark' ? DARK_EDGE_COLORS : LIGHT_EDGE_COLORS;
+        const lineColor = edge.color
+          ? currentEdgeColors[edge.color] || 'var(--node-border)'
+          : 'var(--node-border)';
+        const arrowColor = lineColor; // Arrow color matches line color
 
-        // Create the path for the curved line
-        const path = `M ${fromPoint.x} ${fromPoint.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toPoint.x} ${toPoint.y}`;
+        // Calculate path for arrow head
+        const arrowSize = 10; // Size of the arrow head
+        const angle = Math.atan2(toPoint.y - cp2.y, toPoint.x - cp2.x); // Angle at the end of the bezier curve
 
-        // Calculate the angle for the arrow at the end of the curve
-        const angle = Math.atan2(toPoint.y - cp2y, toPoint.x - cp2x);
-        const arrowLength = 15;
-        
-        // Calculate arrow points
-        const arrowPath = `M ${toPoint.x} ${toPoint.y} L ${toPoint.x - arrowLength * Math.cos(angle - Math.PI / 7)} ${toPoint.y - arrowLength * Math.sin(angle - Math.PI / 7)} L ${toPoint.x - arrowLength * Math.cos(angle + Math.PI / 7)} ${toPoint.y - arrowLength * Math.sin(angle + Math.PI / 7)} Z`;
+        const arrowPath = [
+          `M ${toPoint.x} ${toPoint.y}`,
+          `L ${toPoint.x - arrowSize * Math.cos(angle - Math.PI / 6)} ${toPoint.y - arrowSize * Math.sin(angle - Math.PI / 6)}`,
+          `L ${toPoint.x - arrowSize * Math.cos(angle + Math.PI / 6)} ${toPoint.y - arrowSize * Math.sin(angle + Math.PI / 6)}`,
+          `Z`
+        ].join(' ');
 
-        // Calculate label position along the curve
-        const labelPoint = getPointAlongCurve(0.5, fromPoint, { x: cp1x, y: cp1y }, { x: cp2x, y: cp2y }, toPoint);
-        const labelAngle = getCurveAngle(0.5, fromPoint, { x: cp1x, y: cp1y }, { x: cp2x, y: cp2y }, toPoint);
-
-        // Only use explicit edge.label, do not generate a default
         const label = edge.label;
-        // Only calculate labelWidth if label is set
-        const labelWidth = label ? Math.max(160, label.length * 8) : 0;
+        const labelX = (fromPoint.x + toPoint.x) / 2;
+        const labelY = (fromPoint.y + toPoint.y) / 2;
+        const labelBackgroundPadding = 8;
+        const labelFontSize = 14;
 
         return (
           <g key={edge.id}>
-            {/* Edge line */}
             <path
-              d={path}
-              stroke={isSelected ? arrowColor : lineColor}
-              strokeWidth={isSelected ? 4 : 2}
-              opacity={isSelected ? 1 : 0.7}
+              d={`M ${fromPoint.x} ${fromPoint.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${toPoint.x} ${toPoint.y}`}
               fill="none"
-              markerEnd="url(#arrowhead)"
-              style={{
-                transform: 'translateZ(0)',
-                willChange: 'transform'
-              }}
+              stroke={lineColor}
+              strokeWidth={isSelected ? 3 : 2}
+              className="transition-all duration-150 ease-in-out"
             />
-            {/* Arrow */}
             <path
               d={arrowPath}
-              fill={isSelected ? arrowColor : lineColor}
-              opacity={isSelected ? 1 : 0.7}
-              style={{
-                transform: 'translateZ(0)',
-                willChange: 'transform'
-              }}
+              fill={arrowColor} // Set arrow fill to match line color
+              stroke={arrowColor} // Set arrow stroke to match line color
+              strokeWidth={1}
             />
-            {/* Label group, only if label is set */}
             {label && (
-              <g 
-                transform={`translate(${labelPoint.x}, ${labelPoint.y}) rotate(${labelAngle * (180 / Math.PI)})`}
-                style={{
-                  transform: 'translateZ(0)',
-                  willChange: 'transform'
-                }}
-              >
-                {/* Label background */}
+              <g transform={`translate(${labelX}, ${labelY})`}>
+                {/* Background rectangle for the label */}
                 <rect
-                  x={-labelWidth / 2}
-                  y="-20"
-                  width={labelWidth}
-                  height="40"
+                  x={-(label.length * 7 + labelBackgroundPadding) / 2} // Center the rect
+                  y={-(labelFontSize + labelBackgroundPadding) / 2}
+                  width={label.length * 7 + labelBackgroundPadding}
+                  height={labelFontSize + labelBackgroundPadding}
+                  className="transition-all duration-150 ease-in-out"
+                  xmlns="http://www.w3.org/2000/svg"
+                  stroke={isSelected ? arrowColor : lineColor}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
                   fill={theme === 'dark' ? 'rgba(26, 26, 26, 0.95)' : 'rgba(255, 255, 255, 0.95)'}
                   rx="8"
                   ry="8"
@@ -248,6 +186,6 @@ export const EdgeRenderer: React.FC<EdgeRendererProps> = ({ edges = [], nodes = 
           </g>
         );
       })}
-    </svg>
+    </>
   );
 };

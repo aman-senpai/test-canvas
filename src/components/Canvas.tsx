@@ -4,58 +4,19 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { CanvasState, Point } from '@/types/canvas';
 import { ObsidianCanvas } from '@/types/obsidian-canvas';
 import { useTheme } from '@/contexts/ThemeContext';
-import WebView from './WebView';
 import SideMenu from './SideMenu';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import Markdown from 'react-markdown';
-import MarkdownPreview from './MarkdownPreview';
 import { EdgeRenderer } from './canvas/EdgeRenderer';
+import { BackgroundDots } from './canvas/BackgroundDots';
+import { CanvasNode } from './canvas/CanvasNode';
+import { ThemeToggle } from './canvas/ThemeToggle';
+import { CanvasOverlay } from './canvas/CanvasOverlay';
+
 
 const INITIAL_STATE: CanvasState = {
   nodes: [],
   edges: [],
   scale: 1,
   offset: { x: 0, y: 0 },
-};
-
-const DARK_EDGE_COLORS: { [key: string]: string } = {
-  '1': '#E57373',
-  '2': '#81C784',
-  '3': '#64B5F6',
-  '4': '#FFD54F',
-  '5': '#BA68C8',
-  '6': '#4DD0E1',
-};
-
-const LIGHT_EDGE_COLORS: { [key: string]: string } = {
-  '1': '#D32F2F',
-  '2': '#388E3C',
-  '3': '#1976D2',
-  '4': '#FBC02D',
-  '5': '#7B1FA2',
-  '6': '#0097A7',
-};
-
-const BackgroundDots = () => {
-  const { theme } = useTheme();
-  const dotColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(128, 128, 128, 0.3)';
-  const dotSize = 2.5;
-  const spacing = 20;
-
-  return (
-    <div className="absolute inset-0 pointer-events-none">
-      <div className="absolute inset-0 bg-[var(--background)]" />
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: `radial-gradient(circle ${dotSize}px at ${spacing}px ${spacing}px, ${dotColor} 100%, transparent 0)`,
-          backgroundSize: `${spacing * 2}px ${spacing * 2}px`,
-        }}
-      />
-    </div>
-  );
 };
 
 export default function Canvas() {
@@ -67,33 +28,43 @@ export default function Canvas() {
   const [isLoading, setIsLoading] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const handleWheel = useCallback((e: WheelEvent) => {
-    // Check if the target is inside a node with text content
-    const isMarkdownNode = (e.target as HTMLElement)?.closest('.markdown-content');
-    if (isMarkdownNode) {
-      return; // Don't zoom if we're hovering over markdown content
-    }
+  const getContentBoundingBox = () => {
+    if (state.nodes.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    const minX = Math.min(...state.nodes.map(n => n.position.x - n.width / 2));
+    const maxX = Math.max(...state.nodes.map(n => n.position.x + n.width / 2));
+    const minY = Math.min(...state.nodes.map(n => n.position.y - n.height / 2));
+    const maxY = Math.max(...state.nodes.map(n => n.position.y + n.height / 2));
+    return { minX, minY, maxX, maxY };
+  };
 
+  const handleWheel = useCallback((e: WheelEvent) => {
+    const markdownContent = (e.target as HTMLElement)?.closest('.markdown-content');
+    if (markdownContent) {
+      const hasScrollableContent = markdownContent.scrollHeight > markdownContent.clientHeight;
+      if (hasScrollableContent) return;
+    }
     e.preventDefault();
     const delta = e.deltaY;
-    const scaleChange = delta > 0 ? 0.9 : 1.1;
-    
+    // Reduce zoom intensity
+    const scaleStep = 0.05; // 5% per scroll
+    const scaleChange = delta > 0 ? 1 - scaleStep : 1 + scaleStep;
+    const newScale = Math.max(0.1, Math.min(2, state.scale * scaleChange));
+
     // Get mouse position relative to the canvas
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!canvasRect) return;
-
     const mouseX = e.clientX - canvasRect.left;
     const mouseY = e.clientY - canvasRect.top;
 
     // Calculate mouse position in the current canvas coordinate system
-    const currentMouseX = (mouseX / state.scale) - state.offset.x;
-    const currentMouseY = (mouseY / state.scale) - state.offset.y;
+    const prevScale = state.scale;
+    const prevOffset = state.offset;
+    const worldX = (mouseX / prevScale) - prevOffset.x;
+    const worldY = (mouseY / prevScale) - prevOffset.y;
 
-    const newScale = Math.max(0.1, Math.min(2, state.scale * scaleChange));
-
-    // Calculate new offset to keep the mouse point fixed
-    const newOffsetX = state.offset.x + currentMouseX * (1 - newScale / state.scale);
-    const newOffsetY = state.offset.y + currentMouseY * (1 - newScale / state.scale);
+    // New offset so that the world point under the cursor stays under the cursor
+    const newOffsetX = (mouseX / newScale) - worldX;
+    const newOffsetY = (mouseY / newScale) - worldY;
 
     setState(prev => ({
       ...prev,
@@ -103,6 +74,13 @@ export default function Canvas() {
   }, [state.scale, state.offset]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Prevent dragging if the click originated from a markdown content area
+    // This is important for text selection and interaction within markdown nodes
+    const isMarkdownContent = (e.target as HTMLElement)?.closest('.markdown-content');
+    if (isMarkdownContent) {
+      return; 
+    }
+
     if (e.button === 0) {
       setIsDragging(true);
       setDragStart({ x: e.clientX, y: e.clientY });
@@ -208,61 +186,45 @@ export default function Canvas() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
+      // The 'passive: false' is crucial here if you want to be able to call preventDefault
       canvas.addEventListener('wheel', handleWheel, { passive: false });
       return () => canvas.removeEventListener('wheel', handleWheel);
     }
-  }, [handleWheel]); // Only depend on the memoized handleWheel function
+  }, [handleWheel]);
 
-  const renderNodeContent = (node: any) => {
-    // Determine color from EDGE_COLORS, defaulting to a fallback if not found or no color specified
-    const currentEdgeColors = theme === 'dark' ? DARK_EDGE_COLORS : LIGHT_EDGE_COLORS;
-    const nodeColor = node.color ? currentEdgeColors[node.color] || 'var(--node-border)' : 'var(--node-border)';
-    
-    switch (node.type) {
-      case 'text':
-        return (
-          <div className="prose prose-base max-w-full h-full overflow-auto bg-transparent text-[var(--foreground)] p-2">
-            <MarkdownPreview content={node.content} />
-          </div>
-        );
-      case 'file':
-        return (
-          <div className="prose prose-base max-w-full h-full overflow-auto bg-transparent text-[var(--foreground)] p-2">
-            <MarkdownPreview content={node.content} />
-          </div>
-        );
-      case 'link':
-        // Use WebView for link nodes, no extra className prop
-        return (
-          <WebView url={node.content} width={node.width} height={node.height} />
-        );
-      case 'image':
-        return (
-          <div className="relative w-full h-full">
-            <img
-              src={node.content}
-              alt="Canvas image"
-              className="object-contain w-full h-full"
-            />
-          </div>
-        );
-      case 'group':
-        return (
-          <div className="flex items-center gap-2 text-obsidian-text font-medium">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            <span className="text-sm">{node.label || 'Group'}</span>
-          </div>
-        );
-      default:
-        return <div className="text-obsidian-text font-medium">{node.content}</div>;
+  const handleNodeClick = useCallback((node: any) => {
+    // Only apply for 'file', 'text', and 'link' node types
+    if (node.type !== 'file' && node.type !== 'text' && node.type !== 'link') {
+      return;
     }
-  };
 
-  const getNodeById = (id: string) => {
-    return state.nodes.find(node => node.id === id);
-  };
+    if (canvasRef.current) {
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const canvasWidth = canvasRect.width;
+      const canvasHeight = canvasRect.height;
+
+      // Desired padding around the node when zoomed (e.g., 10% of canvas dimension)
+      const padding = 50; 
+
+      // Calculate the scale needed to fit the node's content within the canvas
+      // Consider both width and height to ensure the entire node is visible
+      const scaleX = (canvasWidth - padding * 2) / node.width;
+      const scaleY = (canvasHeight - padding * 2) / node.height;
+      const newScale = Math.max(0.1, Math.min(Math.min(scaleX, scaleY), 1.1)); // Max zoom to 1.5 to prevent excessive zoom for very small nodes
+
+      // Calculate new offset to center the node
+      // The current node's center is at (node.position.x, node.position.y)
+      // We want this point to align with the canvas center after scaling
+      const newOffsetX = (canvasWidth / 2 / newScale) - node.position.x;
+      const newOffsetY = (canvasHeight / 2 / newScale) - node.position.y;
+
+      setState(prev => ({
+        ...prev,
+        scale: newScale,
+        offset: { x: newOffsetX, y: newOffsetY },
+      }));
+    }
+  }, []);
 
   const handleMarkdownUpload = async (file: File) => {
     try {
@@ -301,13 +263,10 @@ export default function Canvas() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
-      <SideMenu
-        nodes={state.nodes}
-        onMarkdownUpload={handleMarkdownUpload}
-      />
+      <SideMenu nodes={state.nodes} onMarkdownUpload={handleMarkdownUpload} />
       <div
         ref={canvasRef}
-        className={`relative w-full h-full ${isDraggingFile ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
+        className={`relative w-full h-full ${isDraggingFile ? 'bg-gray-100 dark:bg-gray-800' : ''} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -317,21 +276,8 @@ export default function Canvas() {
         onDrop={handleDrop}
       >
         <BackgroundDots />
-        <button
-          onClick={toggleTheme}
-          className="absolute top-4 right-4 z-50 p-2 rounded-lg bg-[var(--node-bg)] border border-[var(--node-border)] hover:bg-opacity-80 transition-all duration-200"
-          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-        >
-          {theme === 'light' ? (
-            <svg className="w-6 h-6 text-[var(--foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-          ) : (
-            <svg className="w-6 h-6 text-[var(--foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          )}
-        </button>
+        <ThemeToggle />
+
         <div
           className="absolute inset-0"
           style={{
@@ -339,16 +285,6 @@ export default function Canvas() {
             transformOrigin: '0 0',
           }}
         >
-          <style jsx global>{`
-            @keyframes flow {
-              from {
-                stroke-dashoffset: 24;
-              }
-              to {
-                stroke-dashoffset: 0;
-              }
-            }
-          `}</style>
           <svg
             className="absolute top-0 left-0 w-full h-full pointer-events-none"
             style={{ 
@@ -356,75 +292,22 @@ export default function Canvas() {
               overflow: 'visible',
             }}
           >
-            {/* Edges are now rendered by EdgeRenderer as Bezier curves */}
             <EdgeRenderer edges={state.edges} nodes={state.nodes} />
           </svg>
           <div className="relative" style={{ zIndex: 1 }}>
-            {state.nodes.map(node => {
-              const currentEdgeColors = theme === 'dark' ? DARK_EDGE_COLORS : LIGHT_EDGE_COLORS;
-              const nodeColor = node.color ? currentEdgeColors[node.color] || 'var(--node-border)' : 'var(--node-border)';
-              return (
-                <div
-                  key={node.id}
-                  className="absolute bg-[var(--node-bg)] border rounded-lg shadow-xl text-[var(--foreground)] p-0"
-                  style={{
-                    left: node.position.x,
-                    top: node.position.y,
-                    width: node.width,
-                    height: node.height,
-                    transform: 'translate(-50%, -50%)',
-                    borderColor: nodeColor,
-                    borderWidth: '3px',
-                    boxSizing: 'border-box',
-                    padding: 0,
-                  }}
-                >
-                  {/* Only add a small padding for markdown nodes, not for all */}
-                  {(node.type === 'text' || node.type === 'file') ? (
-                    <div className="w-full h-full p-1 box-border group">
-                      <div
-                        className="w-full h-full overflow-auto focus:outline-none group-hover:shadow-lg markdown-content"
-                        tabIndex={0}
-                        onWheel={e => {
-                          e.stopPropagation();
-                        }}
-                      >
-                        {renderNodeContent(node)}
-                      </div>
-                    </div>
-                  ) : (
-                    renderNodeContent(node)
-                  )}
-                </div>
-              );
-            })}
+            {state.nodes.map(node => (
+              <CanvasNode 
+                key={node.id} 
+                node={node} 
+                onNodeClick={handleNodeClick}
+              />
+            ))}
           </div>
-          {isDraggingFile && (
-            <div className="absolute inset-0 flex items-center justify-center bg-[var(--canvas-bg)] bg-opacity-50">
-              <div className="text-2xl font-semibold text-[var(--foreground)]">
-                Drop your Obsidian canvas file here
-              </div>
-            </div>
-          )}
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-[var(--canvas-bg)] bg-opacity-75">
-              <div className="text-2xl font-semibold text-[var(--foreground)]">
-                Loading canvas...
-              </div>
-            </div>
-          )}
-          {!isLoading && state.nodes.length === 0 && !isDraggingFile && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-2xl font-semibold text-[var(--foreground)] mb-4">
-                  Obsidian Canvas Viewer
-                </div>
-                <div className="text-[var(--foreground)] text-opacity-70">
-                  Drag and drop your .canvas file here to view it
-                </div>
-              </div>
-            </div>
-          )}
+          <CanvasOverlay
+            isLoading={isLoading}
+            isDraggingFile={isDraggingFile}
+            hasNodes={state.nodes.length > 0}
+          />
         </div>
       </div>
     </div>

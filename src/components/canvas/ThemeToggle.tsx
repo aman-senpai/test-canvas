@@ -7,7 +7,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="fixed bottom-4 right-4 p-2 rounded-lg bg-[var(--node-bg)] border border-[var(--node-border)] shadow-lg hover:bg-[var(--node-bg-hover)] transition-colors"
+      className="fixed bottom-4 right-4 p-2 rounded-lg bg-[var(--node-bg)] border border-[var(--node-border)] shadow-lg hover:bg-[var(--node-bg-hover)] transition-colors z-50" // Added z-50 here
       aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
     >
       {theme === 'light' ? (
@@ -21,4 +21,4 @@ export function ThemeToggle() {
       )}
     </button>
   );
-} 
+}
