@@ -1,26 +1,94 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #000000;
+  --node-bg: #ffffff;
+  --node-bg-hover: #f5f5f5;
+  --node-border: #e5e5e5;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --node-bg: #1a1a1a;
+  --node-bg-hover: #2a2a2a;
+  --node-border: #333333;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    @apply antialiased;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Custom scrollbar styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--node-border);
+  border-radius: 3px;
+}
+
+/* Prose styles for markdown content */
+.prose {
+  @apply max-w-none bg-[var(--node-bg)] text-[var(--foreground)] p-6 rounded-lg shadow;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  @apply text-[var(--foreground)] font-bold mt-6 mb-2;
+}
+
+.prose p,
+.prose li,
+.prose blockquote {
+  @apply text-[var(--foreground)] leading-relaxed;
+}
+
+.prose a {
+  @apply text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-200;
+}
+
+.prose code {
+  @apply text-[var(--foreground)] bg-[var(--node-bg)] px-1 py-0.5 rounded;
+}
+
+.prose pre {
+  @apply bg-[var(--node-bg)] border border-[var(--node-border)] p-4 rounded my-4 overflow-x-auto;
+}
+
+.prose blockquote {
+  @apply border-l-4 pl-4 italic text-[var(--foreground)] border-[var(--node-border)] my-4;
+}
+
+.prose ul,
+.prose ol {
+  @apply pl-6 my-2;
+}
+
+.prose table {
+  @apply w-full border-collapse my-4;
+}
+
+.prose th,
+.prose td {
+  @apply border border-[var(--node-border)] px-3 py-2;
+}
+
+.prose img {
+  @apply max-w-full rounded my-4;
 }
